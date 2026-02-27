@@ -11,23 +11,35 @@ src/claudephant/
 ├── index.py    # Index building and session search
 ```
 
+## Install
+
+```bash
+uv tool install git+https://github.com/ianhi/claudephant
+```
+
+For development: `uv tool install -e .` or `uv run claudephant <command>`.
+
 ## Development
 
 - Python ≥3.11 with `uv`
-- Install as uv tool: `uv tool install -e .` (then just `claudephant <command>`)
-- For development: `uv run claudephant <command>` also works
 - `uv run pytest tests/ -v --cov=claudephant` to run tests
-- Pre-commit hooks: ruff lint + format (auto-installed)
+- Pre-commit hooks: ruff lint + format (auto-installed via `uv run pre-commit install`)
 
 ## Key Design Decisions
 
 - **No heavy dependencies** — only `click` for CLI; everything else is stdlib
+- **Unix-friendly output** — plain text, no color codes, one item per line, stdout for
+  data / stderr for errors. `--json` for structured piping through `jq`. Designed to
+  compose with `grep`, `sort`, `uniq`, `head`, `tail`, `awk`, `cut`
 - **Parser filters noise aggressively** — skips `progress`, `file-history-snapshot`,
   `queue-operation` types; filters meta messages (`<local-command-*>`, `<command-name>`,
   `[request interrupted by user]`, `<task-notification>`, `<bash-input/stdout>`)
 - **Session ID prefix matching** — first 8 chars is enough to identify a session
 - **Filters compose** — `--grep`, `--file`, `--tool`, `--edits`, `--bash`, `--head/--tail`
   can all be combined in a single `claudephant session` call
+- **`--agent-help`** — `claudephant --agent-help` outputs a comprehensive reference
+  (~1k tokens) for AI agents covering all commands, filters, output format, and
+  filtering rules. Regular `--help` stays concise for humans
 
 ## Testing
 
@@ -39,5 +51,6 @@ assistant-first messages, unknown tools. 89 tests, 97% coverage.
 
 - `.claude/skills/conversation-miner/` — Skill for using claudephant to discover
   repeatable patterns and build new Claude Code skills from conversation history.
-  Uses subagents (haiku/sonnet) to process session transcripts without filling
-  the main context window.
+  Two entry points: "mine my history" (broad discovery) and "turn that into a skill"
+  (single session capture). Uses parallel subagents (haiku/sonnet) to process session
+  transcripts without filling the main context window.
