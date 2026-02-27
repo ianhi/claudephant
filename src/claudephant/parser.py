@@ -45,15 +45,17 @@ class Session:
 
 SKIP_TYPES = {"progress", "file-history-snapshot", "queue-operation"}
 
-# User messages that are meta/internal commands
+# User messages that are meta/internal commands — all case-insensitive
+_I = re.IGNORECASE
 META_PATTERNS = [
-    re.compile(r"^<local-command-"),
-    re.compile(r"^<command-name>"),
-    re.compile(r"^<local-command-stdout>"),
-    re.compile(r"^<bash-input>"),
-    re.compile(r"^<bash-stdout>"),
-    re.compile(r"^<task-notification>"),
-    re.compile(r"^\[request interrupted by user", re.IGNORECASE),
+    re.compile(r"^<local-command-", _I),
+    re.compile(r"^<command-name>", _I),
+    re.compile(r"^<local-command-stdout>", _I),
+    re.compile(r"^<bash-input>", _I),
+    re.compile(r"^<bash-stdout>", _I),
+    re.compile(r"^<task-notification>", _I),
+    re.compile(r"^\[request interrupted by user", _I),
+    re.compile(r"^this session is being continued from a previous conversation", _I),
 ]
 
 
