@@ -4,7 +4,8 @@ description: |
   Use this skill when the user wants to mine Claude Code conversation history for
   repeatable patterns, build new skills from past sessions, or analyze their workflow.
   Trigger when the user says things like "find skill candidates", "what patterns repeat",
-  "mine my conversations", "build a skill from history", "analyze my sessions", or
+  "mine my conversations", "build a skill from history", "analyze my sessions",
+  "make a skill from what I just did", "turn that into a skill", or
   "what do I keep asking Claude to do".
 ---
 
@@ -14,6 +15,15 @@ You have access to `claudephant`, a CLI that parses Claude Code JSONL transcript
 from `~/.claude/projects/`. Use it to discover repeatable patterns worth converting
 into Claude Code skills.
 
+## Two Entry Points
+
+This skill supports two distinct modes. Ask the user which applies, or infer from context:
+
+1. **"Mine my history"** — The user wants to discover patterns across many sessions.
+   Start at Phase 1 (Discovery).
+2. **"Turn that into a skill"** — The user just did something and wants to capture it
+   immediately. Skip to Phase 2 (Deep Dive) using the current or most recent session.
+
 ## Workflow Overview
 
 This is an **incremental, collaborative process**. Never dump a wall of data.
@@ -21,7 +31,8 @@ Guide the user through discovery → refinement → extraction in stages.
 
 ## Phase 1: Discovery — Find Candidate Patterns
 
-Start broad: identify what the user does repeatedly across sessions.
+Use this phase when the user wants to explore broadly. Skip this entirely if the user
+already knows what they want to turn into a skill.
 
 ### Step 1: Cross-session prompt analysis
 
@@ -34,7 +45,8 @@ This shows:
 - **Tool Usage** — which tools dominate (signals the type of work)
 - **Most Modified Files** — hot paths in the codebase
 
-Look for prompts appearing 3+ times. These are strong skill candidates.
+Prompts appearing 3+ times are strong automatic candidates, but even a single
+occurrence can be worth capturing if the user found it valuable or painful.
 
 ### Step 2: Extract all prompts for a project
 
@@ -61,19 +73,25 @@ Do NOT proceed to Phase 2 until the user picks a pattern.
 
 ## Phase 2: Deep Dive — Understand the Pattern
 
-Once the user selects a pattern, drill into the sessions where it appeared.
+Once the user selects a pattern — or points you at a specific session — drill in.
 
-### Step 4: List relevant sessions
+If the user wants to capture a **specific recent session**, find it:
+
+```bash
+# Find the most recent sessions
+uv run claudephant list --project <name> --since <recent-date>
+```
+
+If mining from **multiple sessions**, find ones matching the selected pattern:
 
 ```bash
 uv run claudephant list --project <name>
 ```
 
-Find sessions whose first prompt or content matches the selected pattern.
+### Inspect the session(s)
 
-### Step 5: Inspect representative sessions
-
-Pick 2-3 sessions that best represent the pattern and examine them:
+For a single session, examine it thoroughly. For a recurring pattern, pick 2-3
+representative sessions and compare them:
 
 ```bash
 # See the overall flow — what did the user ask, what did Claude do?
@@ -89,11 +107,17 @@ uv run claudephant session <id> --bash
 uv run claudephant session <id> --grep "keyword"
 ```
 
-### Step 6: Identify the reusable core
+### Identify the reusable core
 
-Look for:
+For **multiple sessions**, look for what's common across them:
 - **Common steps** — What sequence of actions appears in every instance?
 - **Inputs** — What varies between instances? (file paths, names, config values)
+
+For a **single session**, look for what generalizes:
+- **Steps** — What was the sequence of actions? Which are essential vs incidental?
+- **Inputs** — What was specific to this instance vs what would change next time?
+
+In both cases, also identify:
 - **Decision points** — Where does the approach branch based on context?
 - **Tool sequences** — What tools are always used and in what order?
 - **Output format** — Is there a consistent deliverable?
@@ -170,7 +194,9 @@ These compose — combine them to narrow down exactly what you need:
 
 ## Anti-patterns to Avoid
 
-- **Don't extract one-off tasks as skills.** A pattern needs 3+ occurrences to be worth it.
+- **Frequency isn't the only signal.** A pattern appearing 3+ times is an obvious candidate,
+  but a single complex workflow the user wants to repeat is equally valid. If the user says
+  "make this a skill", trust them — they know what they'll reuse.
 - **Don't create skills that are just "do X".** Good skills encode *how* and *when*, not just *what*.
 - **Don't skip user confirmation.** The user knows their workflow better than the data shows.
 - **Don't include session-specific details.** File paths, branch names, and error messages from specific sessions should be generalized.
