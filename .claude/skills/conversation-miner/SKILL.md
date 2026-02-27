@@ -15,6 +15,10 @@ You have access to `claudephant`, a CLI that parses Claude Code JSONL transcript
 from `~/.claude/projects/`. Use it to discover repeatable patterns worth converting
 into Claude Code skills.
 
+If you need a full reference for claudephant's commands and filters, run
+`claudephant --agent-help` (~1k tokens). For subagents, include the output of
+`--agent-help` in their prompt so they know how to use the tool.
+
 ## Two Entry Points
 
 This skill supports two distinct modes. Ask the user which applies, or infer from context:

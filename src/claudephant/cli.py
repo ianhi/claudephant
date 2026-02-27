@@ -37,9 +37,116 @@ def _truncate(text: str, length: int = 80) -> str:
     return text
 
 
+AGENT_HELP = """\
+# claudephant — Claude Code conversation transcript miner
+
+## What it does
+Parses JSONL files from ~/.claude/projects/**/*.jsonl containing full Claude Code
+session transcripts. Extracts user prompts, assistant responses, tool calls
+(Edit, Write, Bash, Read, Grep, Glob, etc.), and tool results into a structured
+format. Filters out noise (progress events, file snapshots, meta commands).
+
+## Commands
+
+### claudephant list [-p PROJECT] [--since DATE] [--json]
+List all sessions. Columns: 8-char ID prefix, date, turn count, branch, project, first prompt.
+- `-p/--project NAME` — substring match on project directory name
+- `-s/--since YYYY-MM-DD` — only sessions ending after this date
+- `--json` — JSON array of session objects
+
+### claudephant prompts [-p PROJECT] [--since DATE]
+One line per user prompt across all sessions. Format:
+  [SESSION_ID DATE PROJECT] prompt text...
+Meta/internal messages are filtered out. Pipe-friendly: `| sort | uniq -c | sort -rn`
+
+### claudephant session ID [FILTERS...]
+Inspect a single session. ID is prefix-matched (8 chars enough).
+
+Content filters (what to show):
+  (default)      User prompts + truncated assistant text
+  --tools        Add tool call names with key inputs (file paths, commands)
+  --edits        ONLY Edit/Write calls with file paths and diff snippets
+  --bash         ONLY Bash commands (with output unless --no-results)
+  --full         Everything: full assistant text, all tool calls, all results
+  --json         JSON array of turn objects (composable with jq)
+
+Scope filters (which turns):
+  --turn N           Single turn by 0-based index
+  --turns N-M        Turn range (inclusive)
+  --grep PATTERN     Turns where user prompt or assistant text matches (case-insensitive)
+  --file PATH        Turns that touched this file (in Edit/Write/Read or Bash commands)
+  --tool NAME        Turns that used this tool name (e.g. Edit, Bash, Grep)
+  --after DATE       Turns after this date
+  --before DATE      Turns before this date
+  --compact-segment N  Nth segment between compaction boundaries (0=pre-first)
+
+Output controls:
+  --head N         First N turns only
+  --tail N         Last N turns only
+  --no-results     Show tool calls but omit their output (much shorter)
+
+ALL FILTERS COMPOSE. Examples:
+  claudephant session abc123 --edits --file auth.py    # edits to one file
+  claudephant session abc123 --bash --tail 5           # last 5 bash commands
+  claudephant session abc123 --grep test --tools       # test-related turns with tools
+  claudephant session abc123 --json | jq '.[].tool_calls[].name' | sort | uniq -c
+  claudephant session abc123 --tool Edit --no-results  # just edit calls, no output
+
+### claudephant summary [-p PROJECT] [--since DATE]
+Cross-session analysis showing:
+- Most Common Prompts (2+ occurrences, normalized)
+- Tool Usage per session count
+- Most Modified Files (2+ sessions)
+
+## Output format
+Plain text by default, one item per line, no color codes. Designed to pipe through
+grep, sort, uniq, head, tail, awk, cut, jq (with --json). All commands write to
+stdout; errors go to stderr.
+
+## Session IDs
+Full UUIDs like aaaa1111-2222-3333-4444-555566667777. Prefix match works: the
+first 8 characters are unique enough. Use `claudephant list` to find IDs.
+
+## What gets filtered out
+- progress, file-history-snapshot, queue-operation JSONL types (noise)
+- User messages starting with <local-command-*, <command-name>, <bash-input>,
+  <bash-stdout>, <task-notification>, [request interrupted by user
+- Thinking blocks from assistant messages
+- Pure tool-result user messages (these become ToolResult objects, not prompts)
+"""
+
+
 @click.group()
+@click.option(
+    "--agent-help",
+    is_flag=True,
+    default=False,
+    help="Print comprehensive reference for AI agents (~1k tokens), then exit.",
+    is_eager=True,
+    expose_value=False,
+    callback=lambda ctx, _param, value: (
+        click.echo(AGENT_HELP) or ctx.exit() if value else None
+    ),
+)
 def main():
-    """Claudephant: Mine Claude Code conversation transcripts."""
+    """Mine Claude Code conversation transcripts.
+
+    Parses JSONL files from ~/.claude/projects/ to extract sessions, user
+    prompts, tool calls, and file modifications. Output is plain text by
+    default, pipe-friendly, and composable with standard unix tools.
+
+    \b
+    Quick start:
+      claudephant list                          # see all sessions
+      claudephant list -p icechunk              # filter by project
+      claudephant session abc123 --tools        # inspect a session
+      claudephant prompts | sort | uniq -c      # find repeated prompts
+      claudephant session abc123 --json | jq .  # structured output
+
+    \b
+    For AI agents: `claudephant --agent-help` prints a comprehensive reference
+    with all commands, filters, output format, and filtering rules (~1k tokens).
+    """
     pass
 
 
@@ -52,7 +159,19 @@ def main():
     "--json-output", "--json", "json_out", is_flag=True, help="Output as JSON."
 )
 def list_sessions(project, since, json_out):
-    """List all sessions."""
+    """List all sessions as a table.
+
+    \b
+    Output columns: ID (8-char prefix), date, turn count, git branch,
+    project directory name, and first user prompt.
+
+    \b
+    Examples:
+      claudephant list                              # all sessions
+      claudephant list -p icechunk --since 2026-02   # recent icechunk sessions
+      claudephant list --json | jq '.[].session_id'  # extract IDs
+      claudephant list | grep main                   # sessions on main branch
+    """
     since_dt = _parse_date(since) if since else None
     summaries = build_index(project_filter=project, since=since_dt)
 
@@ -101,7 +220,20 @@ def list_sessions(project, since, json_out):
     "--since", "-s", default=None, help="Only sessions after this date (YYYY-MM-DD)."
 )
 def prompts(project, since):
-    """Extract all user prompts across sessions."""
+    """Extract all user prompts across sessions, one per line.
+
+    \b
+    Each line includes the session ID prefix, date, and project for context.
+    Internal/meta messages are filtered out (tool results, system commands,
+    interruptions). Output is designed for piping through sort, uniq, grep.
+
+    \b
+    Examples:
+      claudephant prompts -p icechunk                  # all icechunk prompts
+      claudephant prompts | sort | uniq -c | sort -rn  # frequency analysis
+      claudephant prompts | grep -i "test"             # find test-related prompts
+      claudephant prompts --since 2026-02-01           # recent prompts only
+    """
     since_dt = _parse_date(since) if since else None
     summaries = build_index(project_filter=project, since=since_dt)
 
@@ -170,7 +302,42 @@ def session_cmd(
     tail_n,
     no_results,
 ):
-    """Show a specific session with fine-grained filtering."""
+    """Inspect a session with composable filters.
+
+    \b
+    SESSION_ID can be a prefix (first 8 chars is enough).
+
+    \b
+    Content filters control WHAT to show:
+      (default)    User prompts + assistant text summaries
+      --tools      Add tool call names and key inputs
+      --edits      Only file modifications (Edit/Write calls)
+      --bash       Only shell commands and their output
+      --full       Everything including complete tool results
+      --json       Machine-readable JSON output
+
+    \b
+    Scope filters control WHICH turns to show:
+      --turn N / --turns N-M   Specific turn(s) by index
+      --grep PATTERN           Turns where prompt or response matches
+      --file PATH              Turns that touched this file
+      --tool NAME              Turns that used this tool (e.g. Edit, Bash)
+      --after / --before DATE  Time range within session
+      --compact-segment N      Nth segment between compaction boundaries
+
+    \b
+    Output controls:
+      --head N / --tail N      First/last N turns
+      --no-results             Show tool calls but hide their output
+
+    \b
+    All filters compose. Examples:
+      claudephant session abc123 --edits --file auth.py
+      claudephant session abc123 --bash --tail 5 --no-results
+      claudephant session abc123 --grep "test" --tools
+      claudephant session abc123 --tool Bash --json | jq '.[].tool_calls'
+      claudephant session abc123 --full --turn 3
+    """
     session = find_session(session_id)
     if session is None:
         click.echo(f"Session not found: {session_id}", err=True)
@@ -367,7 +534,20 @@ def session_cmd(
     "--since", "-s", default=None, help="Only sessions after this date (YYYY-MM-DD)."
 )
 def summary(project, since):
-    """Cross-session analysis: prompts grouped by frequency."""
+    """Cross-session analysis: prompt frequency, tool usage, hot files.
+
+    \b
+    Shows three sections:
+      Most Common Prompts  — user prompts appearing 2+ times (normalized)
+      Tool Usage           — how many sessions used each tool
+      Most Modified Files  — files edited/written across multiple sessions
+
+    \b
+    Examples:
+      claudephant summary                          # all projects
+      claudephant summary -p icechunk              # one project
+      claudephant summary --since 2026-02-01       # recent only
+    """
     since_dt = _parse_date(since) if since else None
     summaries = build_index(project_filter=project, since=since_dt)
 
