@@ -1,12 +1,6 @@
 ---
 name: conversation-miner
-description: |
-  Use this skill when the user wants to mine Claude Code conversation history for
-  repeatable patterns, build new skills from past sessions, or analyze their workflow.
-  Trigger when the user says things like "find skill candidates", "what patterns repeat",
-  "mine my conversations", "build a skill from history", "analyze my sessions",
-  "make a skill from what I just did", "turn that into a skill", or
-  "what do I keep asking Claude to do".
+description: Mine conversation history for repeatable patterns and build skills from them.
 ---
 
 # Conversation Miner: Finding and Building Skills from History
@@ -215,12 +209,13 @@ Create a SKILL.md with this structure:
 ```yaml
 ---
 name: descriptive-skill-name
-description: |
-  When to trigger this skill. Use specific phrases the user might say.
-  Be generous with trigger conditions — better to activate and confirm
-  than to miss a valid use case.
+description: One short sentence describing what this skill does.
 ---
 ```
+
+**Keep the description short** — it appears in the `/` autocomplete menu. One sentence,
+no trigger phrases or examples. The skill body handles the details; the description
+just helps the user (and the model) recognize what it's for at a glance.
 
 The skill body should contain:
 1. **Purpose** — one paragraph on what this skill does
