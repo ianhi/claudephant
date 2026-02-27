@@ -53,7 +53,7 @@ META_PATTERNS = [
     re.compile(r"^<bash-input>"),
     re.compile(r"^<bash-stdout>"),
     re.compile(r"^<task-notification>"),
-    re.compile(r"^\[request interrupted by user"),
+    re.compile(r"^\[request interrupted by user", re.IGNORECASE),
 ]
 
 
