@@ -24,6 +24,18 @@ This skill supports two distinct modes. Ask the user which applies, or infer fro
 2. **"Turn that into a skill"** — The user just did something and wants to capture it
    immediately. Skip to Phase 2 (Deep Dive) using the current or most recent session.
 
+## Context Conservation Strategy
+
+Session transcripts are large and noisy. **Never read raw transcripts in the main
+conversation.** Instead, delegate reading to cheap subagents (haiku or sonnet) that
+process the details and return only the important parts.
+
+The pattern: spawn many small subagents in parallel, each processing one session or
+one aspect, returning a focused summary. The main agent synthesizes across summaries
+and drives the conversation with the user.
+
+See "Subagent Patterns" section below for specific prompts.
+
 ## Workflow Overview
 
 This is an **incremental, collaborative process**. Never dump a wall of data.
@@ -34,37 +46,37 @@ Guide the user through discovery → refinement → extraction in stages.
 Use this phase when the user wants to explore broadly. Skip this entirely if the user
 already knows what they want to turn into a skill.
 
-### Step 1: Cross-session prompt analysis
+### Step 1: Gather raw data (subagent)
 
-```bash
-uv run claudephant summary --project <name>
+Spawn a **haiku** subagent to run the broad analysis. Prompt:
+
+```
+Run these commands and return a structured summary:
+1. `claudephant summary --project <name>`
+2. `claudephant prompts --project <name>`
+
+From the output, identify:
+- Prompts that appear 3+ times (with exact count and example wording)
+- Semantic clusters: prompts that ask for the same kind of thing even if
+  worded differently (e.g. "fix the test" / "run tests and fix" = testing pattern)
+- The top 5 most-used tools and what they suggest about workflow type
+- Files modified across 3+ sessions
+
+Return ONLY:
+- A numbered list of candidate patterns (one line each + count + example prompts)
+- The tool usage summary
+- The hot files list
+Do not return raw command output.
 ```
 
-This shows:
-- **Most Common Prompts** — repeated user instructions (skill candidates!)
-- **Tool Usage** — which tools dominate (signals the type of work)
-- **Most Modified Files** — hot paths in the codebase
+### Step 2: Present candidates to the user
 
-Prompts appearing 3+ times are strong automatic candidates, but even a single
-occurrence can be worth capturing if the user found it valuable or painful.
-
-### Step 2: Extract all prompts for a project
-
-```bash
-uv run claudephant prompts --project <name>
-```
-
-Scan the output for **semantic clusters** — prompts that ask for the same kind of
-thing even if worded differently. Examples:
-- Multiple "fix the test" / "run tests and fix failures" → testing skill
-- Multiple "review this PR" / "check the PR comments" → PR review skill
-- Multiple "update the docs" / "add docstrings" → documentation skill
-
-### Step 3: Present candidates to the user
+Take the subagent's summary and present it. Prompts appearing 3+ times are strong
+automatic candidates, but even a single occurrence can be worth capturing if the
+user found it valuable or painful.
 
 **CRITICAL: Stop here and confirm with the user before proceeding.**
 
-Present your findings as a short list:
 - "I found N candidate patterns. Here are the top ones:"
 - For each: one-line description + how many times it appeared + example prompts
 - Ask: "Which of these would be most valuable as a reusable skill?"
@@ -75,46 +87,65 @@ Do NOT proceed to Phase 2 until the user picks a pattern.
 
 Once the user selects a pattern — or points you at a specific session — drill in.
 
-If the user wants to capture a **specific recent session**, find it:
+### Step 3: Find the relevant sessions
 
-```bash
-# Find the most recent sessions
-uv run claudephant list --project <name> --since <recent-date>
+Run `claudephant list --project <name>` yourself (this is small output).
+Identify the session IDs to inspect — either the one the user pointed at, or 2-4
+sessions that match the selected pattern.
+
+### Step 4: Parallel session analysis (subagents)
+
+Spawn one **haiku** or **sonnet** subagent **per session**, all in parallel. Each
+subagent analyzes one session independently. Use haiku for shorter sessions
+and sonnet for longer/more complex ones.
+
+Prompt for each subagent:
+
+```
+Analyze this Claude Code session for reusable workflow patterns.
+
+Run these commands and study the output:
+1. `claudephant session <id> --tools` — the full flow with tool calls
+2. `claudephant session <id> --edits` — file modifications
+3. `claudephant session <id> --bash` — shell commands run
+
+Return a structured analysis:
+
+## Session Summary
+One-paragraph description of what happened in this session.
+
+## Workflow Steps
+Numbered list of the key actions taken, in order. For each step note:
+- What the user asked for or what triggered it
+- What tool(s) were used
+- What the outcome was
+
+## Interesting Moments
+Flag any of these if they appear:
+- Points where the user corrected course or gave new direction
+- Complex multi-step operations that would be hard to reproduce from memory
+- Reusable command sequences or tool call patterns
+- Error recovery patterns (something failed, then was fixed)
+
+## Files Touched
+List of files modified, with a one-line note on what changed in each.
+
+## Candidate Skill Elements
+What parts of this session look reusable? What would need to be parameterized?
 ```
 
-If mining from **multiple sessions**, find ones matching the selected pattern:
+### Step 5: Synthesize across sessions
 
-```bash
-uv run claudephant list --project <name>
-```
+Read the subagent summaries (NOT the raw transcripts — those stay in subagent
+context). Look for:
 
-### Inspect the session(s)
-
-For a single session, examine it thoroughly. For a recurring pattern, pick 2-3
-representative sessions and compare them:
-
-```bash
-# See the overall flow — what did the user ask, what did Claude do?
-uv run claudephant session <id> --tools
-
-# See what files were changed
-uv run claudephant session <id> --edits
-
-# See what commands were run
-uv run claudephant session <id> --bash
-
-# Search for specific aspects of the pattern
-uv run claudephant session <id> --grep "keyword"
-```
-
-### Identify the reusable core
-
-For **multiple sessions**, look for what's common across them:
-- **Common steps** — What sequence of actions appears in every instance?
+For **multiple sessions** — what's common across them:
+- **Common steps** — What sequence appears in every instance?
 - **Inputs** — What varies between instances? (file paths, names, config values)
+- **Interesting moments** that multiple subagents flagged
 
-For a **single session**, look for what generalizes:
-- **Steps** — What was the sequence of actions? Which are essential vs incidental?
+For a **single session** — what generalizes:
+- **Steps** — Which are essential vs incidental?
 - **Inputs** — What was specific to this instance vs what would change next time?
 
 In both cases, also identify:
@@ -122,14 +153,15 @@ In both cases, also identify:
 - **Tool sequences** — What tools are always used and in what order?
 - **Output format** — Is there a consistent deliverable?
 
-### Step 7: Confirm the extraction plan
+### Step 6: Confirm the extraction plan
 
-**CRITICAL: Stop here and confirm with the user again.**
+**CRITICAL: Stop here and confirm with the user.**
 
 Present:
 - "Here's what I found the pattern actually does, step by step:"
 - The common workflow (numbered steps)
 - What varies (the inputs/parameters)
+- Interesting moments the subagents flagged (quote the specific findings)
 - What could be automated vs what needs human judgment
 - Ask: "Does this capture the pattern? Anything to add or change?"
 
@@ -164,14 +196,29 @@ The skill body should contain:
 - **Don't over-generalize** — A skill for "fix pytest failures in icechunk" is better than "fix any test in any project"
 - **Keep it under 200 lines** — Move reference material to `references/` subdirectory
 
-### Step 9: Verify with examples
+### Step 9: Verify with examples (subagent)
 
-Test the skill description against 2-3 past sessions:
-- Would the trigger conditions have activated?
-- Do the steps match what actually happened?
-- Are the decision points in the right places?
+Spawn a **haiku** subagent to validate the draft skill against past sessions:
 
-Present the verification to the user.
+```
+Here is a draft skill definition:
+
+<paste the SKILL.md content>
+
+Now check it against these sessions by running:
+- `claudephant session <id> --tools` for each session ID: <list ids>
+
+For each session, answer:
+1. Would the trigger description have matched the user's initial prompt?
+2. Do the skill's workflow steps match what actually happened? Note any gaps.
+3. Are the decision points in the right places — did the user make choices
+   at the points the skill says to ask?
+4. Are there steps in the session that the skill missed?
+
+Return a brief verdict per session and any suggested improvements.
+```
+
+Present the subagent's findings to the user.
 
 ## Useful Claudephant Filters
 
@@ -191,6 +238,39 @@ These compose — combine them to narrow down exactly what you need:
 | `--head N` / `--tail N` | First/last N turns |
 | `--turn N` / `--turns N-M` | Specific turns |
 | `--json` | Machine-readable output |
+
+## Subagent Patterns
+
+### Principles
+
+- **The main agent never reads raw transcripts.** Subagents read, the main agent synthesizes.
+- **Use haiku for most session analysis** — it's cheap and fast. Use sonnet for sessions
+  that are very long or where the pattern is subtle.
+- **Spawn in parallel** — If analyzing 4 sessions, spawn 4 subagents at once, don't do them
+  sequentially. The Task tool supports this (multiple tool calls in one message).
+- **Give structured output templates** — Tell the subagent exactly what format to return.
+  Bullet lists and headers, not prose.
+- **Quote specifics in the return** — The subagent should include exact command strings,
+  file paths, and key phrases from user prompts so the main agent can reference them
+  without re-reading the session.
+
+### When to use which model
+
+| Task | Model | Why |
+|------|-------|-----|
+| Run claudephant + summarize output | haiku | Mechanical extraction, fast |
+| Analyze a short session (<50 turns) | haiku | Straightforward reading |
+| Analyze a long/complex session | sonnet | Needs to track nuance across many turns |
+| Cross-session comparison | main agent | Synthesizing across subagent summaries |
+| Skill writing | main agent | Requires user context and creative judgment |
+| Skill verification | haiku | Mechanical: compare steps to transcript |
+
+### Context budget
+
+Each subagent gets its own context window. A typical session's `--tools` output
+is 5-20K tokens — well within haiku's capacity. By splitting sessions across
+subagents, you can analyze an arbitrarily large number of sessions without
+filling the main conversation's context.
 
 ## Anti-patterns to Avoid
 
