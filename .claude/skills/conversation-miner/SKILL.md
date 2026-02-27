@@ -171,7 +171,44 @@ Present:
 
 ## Phase 3: Build the Skill
 
-### Step 8: Create the skill
+### Step 7: Check for existing skills
+
+**CRITICAL: Check before creating.** The pattern may already be partially or fully
+covered by an existing skill. Search both locations:
+
+```bash
+ls ~/.claude/skills/*/SKILL.md 2>/dev/null
+ls .claude/skills/*/SKILL.md 2>/dev/null
+```
+
+Read any skill whose name or description overlaps with the pattern you extracted.
+
+**If an existing skill covers similar ground**, present it to the user and ask:
+- "This existing skill `<name>` covers related territory. Should I:
+  1. **Extend it** — add the new pattern as an additional workflow/section
+  2. **Replace it** — the new pattern supersedes the old one
+  3. **Create a separate skill** — they're distinct enough to stay independent"
+
+Only proceed to create a new skill if no existing skill overlaps, or if the user
+explicitly chooses to create a separate one.
+
+### Step 8: Ask the user where to place the skill
+
+**CRITICAL: Ask before creating files.** Skills can live in different places depending
+on scope and audience:
+
+- **Project-specific**: `<project-root>/.claude/skills/<skill-name>/SKILL.md` — for
+  patterns that only apply to one project
+- **User-wide**: `~/.claude/skills/<skill-name>/SKILL.md` — for patterns the user
+  wants available across all projects
+- **Shared/team**: A separate repo or directory the user specifies
+
+Ask: "Where should this skill live? Options:
+1. In `<project>/.claude/skills/` (project-specific)
+2. In `~/.claude/skills/` (available everywhere)
+3. Somewhere else (specify path)"
+
+### Step 9: Create the skill
 
 Create a SKILL.md with this structure:
 
@@ -194,13 +231,34 @@ The skill body should contain:
 
 ### Skill writing principles
 
-- **Be specific about actions** — "Run `pytest -x` and check for failures" not "run tests"
-- **Include the tool calls** — If the pattern always uses Edit on a specific file, say so
-- **Preserve decision points** — If the human always made a choice at step 3, keep that as an interaction point
-- **Don't over-generalize** — A skill for "fix pytest failures in icechunk" is better than "fix any test in any project"
+- **Separate project-specific from general.** Build commands, env managers, linter
+  invocations, and specific filenames belong in the project's CLAUDE.md or contributing
+  docs — not in the skill. The skill should say "run the tests" or "run the project's
+  linter", not `uv run pytest` or `uvx pre-commit run ruff`.
+- **Focus on the hard/unique part.** A skill's value is in the non-obvious workflow —
+  the diagnosis strategy, the decision tree, the order of operations. Generic steps
+  like "apply the fix" or "commit the changes" don't need to be in the skill; the
+  agent already knows how to do those. End the skill where general-purpose coding
+  takes over.
+- **Preserve decision points** — If the human always made a choice at step 3, keep
+  that as an interaction point
+- **Don't assume destructive actions** — Never instruct the agent to delete user
+  artifacts (scripts, temp files, branches) automatically. The user may still need them.
 - **Keep it under 200 lines** — Move reference material to `references/` subdirectory
 
-### Step 9: Verify with examples (subagent)
+### Step 10: Show the skill to the user for review
+
+**CRITICAL: The user must see the full skill content before it is finalized.**
+
+After creating the SKILL.md, output its **entire contents** as a message to the user.
+Do NOT just read the file silently — the user cannot see tool results. Print the
+full skill text in your response so they can review it in the conversation.
+
+Then ask: "Does this skill look accurate? Any changes needed?"
+
+Incorporate any feedback before proceeding to verification.
+
+### Step 11: Verify with examples (subagent)
 
 Spawn a **haiku** subagent to validate the draft skill against past sessions:
 
@@ -222,7 +280,7 @@ For each session, answer:
 Return a brief verdict per session and any suggested improvements.
 ```
 
-Present the subagent's findings to the user.
+Present the subagent's findings to the user and ask for final approval.
 
 ## Useful Claudephant Filters
 
@@ -283,5 +341,12 @@ filling the main conversation's context.
   "make this a skill", trust them — they know what they'll reuse.
 - **Don't create skills that are just "do X".** Good skills encode *how* and *when*, not just *what*.
 - **Don't skip user confirmation.** The user knows their workflow better than the data shows.
-- **Don't include session-specific details.** File paths, branch names, and error messages from specific sessions should be generalized.
-- **Don't make the skill too broad.** "Handle all code changes" is useless. "Review and apply PR feedback for Python projects" is useful.
+- **Don't embed project-specific tooling.** Build commands (`maturin develop`),
+  env managers (`uv run`, `pixi run`), linters (`ruff`), and specific file paths
+  from the source sessions should not appear in the skill. These belong in each
+  project's CLAUDE.md. The skill should reference "the project's build process" or
+  "the project's test runner" generically.
+- **Don't make the skill too broad.** "Handle all code changes" is useless. "Review
+  and apply PR feedback for Python projects" is useful. But also don't pad the skill
+  with generic steps the agent already knows — if "apply the fix and run tests" is
+  the entire remaining workflow, the skill should stop before that point.
