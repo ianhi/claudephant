@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
+from pathlib import Path
 
 from .index import build_index, find_session
 
@@ -140,3 +142,119 @@ def extract_mistakes(
                 "num_error_turns": len(error_turns),
                 "turns": error_turns,
             }
+
+
+# Signal priority for ranking: lower index = higher value.
+_SIGNAL_PRIORITY = {"user_correction": 0, "error": 1, "self_correction": 2}
+
+
+def _turn_priority(turn: dict) -> int:
+    """Return the best (lowest) signal priority for a turn."""
+    return min(_SIGNAL_PRIORITY.get(s, 99) for s in turn["signal"])
+
+
+def compute_stats(results: list[dict]) -> str:
+    """Return a human-readable stats summary of extraction results."""
+    total_turns = sum(r["num_error_turns"] for r in results)
+    signal_counts: Counter[str] = Counter()
+    project_sessions: Counter[str] = Counter()
+    project_turns: Counter[str] = Counter()
+
+    for r in results:
+        project_sessions[r["project"]] += 1
+        for t in r["turns"]:
+            project_turns[r["project"]] += 1
+            for s in t["signal"]:
+                signal_counts[s] += 1
+
+    lines = [
+        f"Sessions matched: {len(results)}",
+        f"Error turns: {total_turns}",
+    ]
+    for signal in ["user_correction", "error", "self_correction"]:
+        if signal_counts[signal]:
+            lines.append(f"  {signal}: {signal_counts[signal]}")
+
+    lines.append("Top projects:")
+    for proj, sess_count in project_sessions.most_common(10):
+        lines.append(f"  {proj}: {sess_count} sessions, {project_turns[proj]} turns")
+
+    return "\n".join(lines)
+
+
+def cap_and_prioritize(results: list[dict], max_per_session: int) -> list[dict]:
+    """Cap turns per session, keeping highest-priority signals first."""
+    capped = []
+    for r in results:
+        turns = sorted(r["turns"], key=_turn_priority)[:max_per_session]
+        capped.append({**r, "turns": turns, "num_error_turns": len(turns)})
+    return capped
+
+
+def top_turns(results: list[dict], n: int) -> list[dict]:
+    """Return only the top N highest-value turns across all sessions."""
+    # Collect all turns with their session metadata
+    all_turns = []
+    for r in results:
+        for t in r["turns"]:
+            all_turns.append((r, t))
+
+    # Sort by priority (best first), then by timestamp (newest first)
+    all_turns.sort(key=lambda x: (_turn_priority(x[1]), x[1].get("timestamp", "")))
+
+    # Take top N, rebuild session-grouped output
+    selected = all_turns[:n]
+    session_turns: dict[str, list] = {}
+    session_meta: dict[str, dict] = {}
+    for r, t in selected:
+        sid = r["session_id"]
+        session_turns.setdefault(sid, []).append(t)
+        session_meta[sid] = r
+
+    out = []
+    for sid, turns in session_turns.items():
+        meta = session_meta[sid]
+        out.append(
+            {
+                "session_id": meta["session_id"],
+                "project": meta["project"],
+                "branch": meta["branch"],
+                "cwd": meta["cwd"],
+                "start_time": meta["start_time"],
+                "num_total_turns": meta["num_total_turns"],
+                "num_error_turns": len(turns),
+                "turns": turns,
+            }
+        )
+    return out
+
+
+def split_batches(results: list[dict], n: int, out_dir: Path) -> list[Path]:
+    """Split results into N balanced batch files by turn count.
+
+    Returns list of written file paths. Files are pretty-printed JSON.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Sort sessions by turn count (largest first) for better balancing
+    sessions = sorted(results, key=lambda r: r["num_error_turns"], reverse=True)
+
+    # Greedy bin-packing: assign each session to the lightest batch
+    batches: list[list[dict]] = [[] for _ in range(n)]
+    batch_sizes = [0] * n
+
+    for session in sessions:
+        # Find the batch with the fewest turns
+        lightest = min(range(n), key=lambda i: batch_sizes[i])
+        batches[lightest].append(session)
+        batch_sizes[lightest] += session["num_error_turns"]
+
+    paths = []
+    for i, batch in enumerate(batches):
+        if not batch:
+            continue
+        p = out_dir / f"batch_{i}.json"
+        p.write_text(json.dumps(batch, indent=2))
+        paths.append(p)
+
+    return paths

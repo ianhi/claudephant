@@ -31,14 +31,21 @@ Then extract error turns. **Run extraction once, save to a file, and do all
 subsequent analysis on that file.** Extraction scans every session and is slow —
 never re-run it to pipe into different filters.
 
+Use a project-relative directory so subagents can read the output files:
+
 ```
-claudephant mistakes [OPTIONS] > /tmp/mistakes.json 2>/tmp/mistakes.log
+mkdir -p .mistakes-tmp
+claudephant mistakes [OPTIONS] > .mistakes-tmp/mistakes.json 2>.mistakes-tmp/mistakes.log
 ```
 
 Options:
 - `-k/--keywords PATTERN` — only turns matching these patterns (repeatable)
 - `-p/--project NAME` — filter by project directory (substring, repeatable)
 - `-s/--since DATE` — recent sessions only
+- `--stats` — print a summary (session/turn counts, signal breakdown, top projects) without full JSON
+- `--top N` — emit only top N turns by signal priority (skip batching for small data)
+- `--split N --out-dir .mistakes-tmp` — split into N balanced batch files directly
+- `--max-per-session N` — cap turns per session (default 25 with --split)
 
 Each turn in the output has a `signal` list with one or more of:
 - `user_correction` — **highest value**: the user told Claude it was wrong
@@ -71,29 +78,46 @@ with empty data.
 
 ## Step 2: Assess the data volume
 
-Read `/tmp/mistakes.json` to check the size. If it's small enough to analyze
-directly (under ~100 error turns total), skip batching and go straight to Step 4.
+First, get a quick overview with `--stats`:
+
+```
+claudephant mistakes [OPTIONS] --stats
+```
+
+This prints session counts, signal breakdown, and top projects without dumping
+JSON. Use it to decide whether to add `-k` filters or proceed with full
+extraction.
+
+Read `.mistakes-tmp/mistakes.json` to check the size. If it's small enough to
+analyze directly (under ~100 error turns total), use `--top 100` and skip
+batching — go straight to Step 4.
 
 If it's large (100+ error turns):
 
 ## Step 3: Batch and analyze in parallel
 
-Split `/tmp/mistakes.json` into 4-6 batch files (`/tmp/batch_0.json` through
-`/tmp/batch_5.json`). The split is simple: divide sessions into groups, keeping
-each group roughly equal in total error turns. Cap at ~25 turns per session
-(keep the highest-value ones: turns with `user_correction` first, then `error`
-turns with AttributeError/TypeError, then the rest).
+Use the built-in `--split` to create balanced batch files:
 
-**Use subagents for analysis, not grep/jq.** Grep can count signals but can't
-understand code patterns. Launch haiku or sonnet subagents in parallel, one per
+```
+claudephant mistakes [OPTIONS] --split 5 --out-dir .mistakes-tmp
+```
+
+This writes `.mistakes-tmp/batch_0.json` through `.mistakes-tmp/batch_4.json`,
+balanced by total error turns per batch. Turns are capped at 25 per session
+(override with `--max-per-session N`) and prioritized: `user_correction` first,
+then `error`, then `self_correction`.
+
+**Use sonnet subagents for analysis, not grep/jq.** Grep can count signals but
+can't understand code patterns. Launch sonnet subagents in parallel, one per
 batch. Each reads its batch file and identifies concrete API mistake patterns:
 wrong code, correct code, error message, frequency. Subagents are cheap and
 can understand context that text matching cannot.
 
 If the user has a local checkout of the library being analyzed (check common
-locations like `~/Documents/dev/LIBNAME` or `../LIBNAME`), read key source
-files to understand the current API surface. This helps you verify the "correct"
-alternative is actually correct.
+locations like `~/Documents/dev/LIBNAME` or `../LIBNAME`), **read key source
+files yourself (main agent)** to understand the current API surface, then
+include a brief API summary in each subagent's prompt. Subagents cannot read
+files outside the project directory — don't delegate source reading to them.
 
 ## Step 4: Compile the catalog
 

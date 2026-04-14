@@ -12,3 +12,4 @@ uv.lock
 # Mining results (regenerated per-user)
 scripts/api_mistakes_data/
 scripts/api_mistakes_batches/
+.mistakes-tmp/

@@ -92,7 +92,7 @@ ALL FILTERS COMPOSE. Examples:
   claudephant session abc123 --json | jq '.[].tool_calls[].name' | sort | uniq -c
   claudephant session abc123 --tool Edit --no-results  # just edit calls, no output
 
-### claudephant mistakes [-p PROJECT] [-k KEYWORDS] [--since DATE]
+### claudephant mistakes [-p PROJECT] [-k KEYWORDS] [--since DATE] [...]
 Extract error and correction turns across all sessions as JSON.
 Finds turns where something went wrong and tags each with a signal list:
   - user_correction  — user told Claude it was wrong (highest value)
@@ -101,20 +101,29 @@ Finds turns where something went wrong and tags each with a signal list:
 A single turn can have multiple signals.
 
 Options:
-  -p/--project NAME   Filter sessions by project directory (repeatable)
-  -k/--keywords PAT   Only turns matching these regex patterns (repeatable)
-  -s/--since DATE     Only sessions after this date
+  -p/--project NAME      Filter sessions by project directory (repeatable)
+  -k/--keywords PAT      Only turns matching these regex patterns (repeatable)
+  -s/--since DATE        Only sessions after this date
+  --pretty/--no-pretty   Pretty-print JSON (default: yes for TTY, no for pipe)
+  --stats                Print summary (sessions, signal counts, top projects) instead of JSON
+  --top N                Emit only top N turns ranked by signal priority
+  --max-per-session N    Cap turns per session, keeping highest-priority (default 25 with --split)
+  --split N              Split output into N balanced batch files
+  --out-dir DIR          Directory for batch files (default: .mistakes-tmp)
 
 Output is a JSON array of session objects, each with an array of error turns.
-Progress goes to stderr, data to stdout.
+Progress goes to stderr, data to stdout. Pretty-printed by default for TTY.
 
 Content is truncated (assistant text to 2000 chars, tool results to 1000 chars).
 Use `claudephant session ID --turn N --full` to get complete turn content.
 
 Examples:
-  claudephant mistakes -k pandas -k DataFrame     # pandas across all projects
-  claudephant mistakes -p mylib --since 2026-03    # recent project errors
-  claudephant mistakes > /tmp/mistakes.json        # save for analysis
+  claudephant mistakes -k pandas -k DataFrame           # pandas across all projects
+  claudephant mistakes -p mylib --since 2026-03          # recent project errors
+  claudephant mistakes --stats                           # quick summary
+  claudephant mistakes --top 50                          # top 50 turns only
+  claudephant mistakes --split 5 --out-dir .mistakes-tmp # batch files for subagents
+  claudephant mistakes > mistakes.json                   # save for analysis
 
 ### claudephant summary [-p PROJECT] [--since DATE]
 Cross-session analysis showing:
@@ -563,7 +572,37 @@ def session_cmd(
     multiple=True,
     help="Only turns matching these regex patterns (repeatable).",
 )
-def mistakes(project, since, keywords):
+@click.option(
+    "--pretty/--no-pretty",
+    default=None,
+    help="Pretty-print JSON output (default: yes for TTY, no for pipe).",
+)
+@click.option("--stats", is_flag=True, help="Print summary stats instead of full JSON.")
+@click.option(
+    "--top", "top_n", type=int, default=None, help="Emit only top N turns by priority."
+)
+@click.option(
+    "--max-per-session",
+    type=int,
+    default=None,
+    help="Cap error turns per session (keeps highest-priority). Default: 25 with --split.",
+)
+@click.option(
+    "--split",
+    "split_n",
+    type=int,
+    default=None,
+    help="Split into N balanced batch files.",
+)
+@click.option(
+    "--out-dir",
+    type=click.Path(),
+    default=None,
+    help="Output directory for --split batch files (default: .mistakes-tmp).",
+)
+def mistakes(
+    project, since, keywords, pretty, stats, top_n, max_per_session, split_n, out_dir
+):
     """Extract error and correction turns across all sessions as JSON.
 
     \b
@@ -586,9 +625,20 @@ def mistakes(project, since, keywords):
       claudephant mistakes -p myproject                 # one project
       claudephant mistakes -k pandas -k DataFrame       # only pandas-related
       claudephant mistakes --since 2026-03-01           # recent only
+      claudephant mistakes --stats                      # summary without full dump
+      claudephant mistakes --top 50                     # top 50 highest-value turns
+      claudephant mistakes --split 5 --out-dir batch/   # split into 5 batch files
       claudephant mistakes | jq '.[].turns[] | select(.signal[] == "user_correction")'
     """
-    from .mistakes import extract_mistakes
+    from pathlib import Path
+
+    from .mistakes import (
+        cap_and_prioritize,
+        compute_stats,
+        extract_mistakes,
+        split_batches,
+        top_turns,
+    )
 
     since_dt = _parse_date(since) if since else None
 
@@ -597,6 +647,9 @@ def mistakes(project, since, keywords):
         # Don't wrap in \b — user controls word boundaries in their patterns.
         # This lets patterns like 'pd\.' and 'xr\.' work correctly.
         keyword_pattern = re.compile("(" + "|".join(keywords) + ")", re.IGNORECASE)
+
+    if out_dir and not split_n:
+        raise click.UsageError("--out-dir requires --split N")
 
     # Count total sessions for progress reporting
     all_summaries = build_index(project_filter=project, since=since_dt)
@@ -623,7 +676,8 @@ def mistakes(project, since, keywords):
                 "or broaden the keyword patterns.",
                 err=True,
             )
-        click.echo("[]")
+        if not stats:
+            click.echo("[]")
         return
 
     total_turns = sum(r["num_error_turns"] for r in results)
@@ -631,7 +685,43 @@ def mistakes(project, since, keywords):
         f"\n{total_turns} error turns from {len(results)}/{total_sessions} sessions",
         err=True,
     )
-    click.echo(json.dumps(results, indent=2))
+
+    # Apply --max-per-session (default 25 when --split is used)
+    effective_max = max_per_session or (25 if split_n else None)
+    if effective_max:
+        results = cap_and_prioritize(results, effective_max)
+
+    # --stats: print summary and exit
+    if stats:
+        click.echo(compute_stats(results))
+        return
+
+    # --top N: keep only top turns
+    if top_n:
+        results = top_turns(results, top_n)
+
+    # --split N: write batch files
+    if split_n:
+        batch_dir = Path(out_dir) if out_dir else Path(".mistakes-tmp")
+        paths = split_batches(results, split_n, batch_dir)
+        for p in paths:
+            batch_data = json.loads(p.read_text())
+            batch_turns = sum(r["num_error_turns"] for r in batch_data)
+            click.echo(
+                f"  {p}: {len(batch_data)} sessions, {batch_turns} turns", err=True
+            )
+        click.echo(f"\nWrote {len(paths)} batch files to {batch_dir}/", err=True)
+        return
+
+    # Determine indent: pretty-print for TTY or explicit --pretty
+    use_pretty = (
+        pretty
+        if pretty is not None
+        else hasattr(click.get_text_stream("stdout"), "isatty")
+        and click.get_text_stream("stdout").isatty()
+    )
+    indent = 2 if use_pretty else None
+    click.echo(json.dumps(results, indent=indent))
 
 
 @main.command("summary")

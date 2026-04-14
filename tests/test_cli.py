@@ -398,6 +398,124 @@ class TestSummaryCommand:
                 assert result.exit_code == 0
 
 
+class TestMistakesCommand:
+    def _run(self, args, claude_dir):
+        """Run mistakes command."""
+        runner = CliRunner()
+        with patch("claudephant.index.DEFAULT_CLAUDE_DIR", claude_dir):
+            return runner.invoke(main, ["mistakes"] + args)
+
+    @staticmethod
+    def _extract_json(output):
+        """Extract JSON from mixed stdout+stderr output."""
+        # Find the first '[' which starts the JSON array
+        idx = output.find("[")
+        if idx == -1:
+            return output  # no JSON, return as-is for non-JSON tests
+        return output[idx:]
+
+    def test_mistakes_basic(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            claude_dir = _make_claude_dir(Path(tmp))
+            result = self._run([], claude_dir)
+            assert result.exit_code == 0
+            data = json.loads(self._extract_json(result.output))
+            assert isinstance(data, list)
+            # error_result.jsonl has a failing test turn
+            assert any(r["session_id"].startswith("eeee") for r in data)
+
+    def test_mistakes_pretty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            claude_dir = _make_claude_dir(Path(tmp))
+            result = self._run(["--pretty"], claude_dir)
+            assert result.exit_code == 0
+            json_part = self._extract_json(result.output)
+            # Pretty-printed JSON has newlines within the array
+            assert "\n" in json_part.strip()
+            data = json.loads(json_part)
+            assert isinstance(data, list)
+
+    def test_mistakes_no_pretty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            claude_dir = _make_claude_dir(Path(tmp))
+            result = self._run(["--no-pretty"], claude_dir)
+            assert result.exit_code == 0
+            data = json.loads(self._extract_json(result.output))
+            assert isinstance(data, list)
+
+    def test_mistakes_stats(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            claude_dir = _make_claude_dir(Path(tmp))
+            result = self._run(["--stats"], claude_dir)
+            assert result.exit_code == 0
+            assert "Sessions matched:" in result.output
+            assert "Error turns:" in result.output
+            assert "Top projects:" in result.output
+
+    def test_mistakes_stats_no_results(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            claude_dir = _make_claude_dir(Path(tmp))
+            result = self._run(["--stats", "-k", "zzz_no_match_zzz"], claude_dir)
+            assert result.exit_code == 0
+            # Should not crash, no JSON output
+            assert "[" not in result.output
+
+    def test_mistakes_top(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            claude_dir = _make_claude_dir(Path(tmp))
+            result = self._run(["--top", "1"], claude_dir)
+            assert result.exit_code == 0
+            data = json.loads(self._extract_json(result.output))
+            total_turns = sum(r["num_error_turns"] for r in data)
+            assert total_turns <= 1
+
+    def test_mistakes_max_per_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            claude_dir = _make_claude_dir(Path(tmp))
+            result = self._run(["--max-per-session", "1"], claude_dir)
+            assert result.exit_code == 0
+            data = json.loads(self._extract_json(result.output))
+            for r in data:
+                assert r["num_error_turns"] <= 1
+
+    def test_mistakes_split(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            claude_dir = _make_claude_dir(Path(tmp))
+            out_dir = Path(tmp) / "batches"
+            result = self._run(["--split", "2", "--out-dir", str(out_dir)], claude_dir)
+            assert result.exit_code == 0
+            # Should have created batch files
+            batch_files = sorted(out_dir.glob("batch_*.json"))
+            assert len(batch_files) >= 1
+            # Each batch file should be valid pretty-printed JSON
+            for bf in batch_files:
+                data = json.loads(bf.read_text())
+                assert isinstance(data, list)
+                # Pretty-printed means indentation
+                assert "\n " in bf.read_text()
+
+    def test_mistakes_split_default_outdir(self):
+        """--split without --out-dir uses .mistakes-tmp/."""
+        import os
+
+        with tempfile.TemporaryDirectory() as tmp:
+            claude_dir = _make_claude_dir(Path(tmp))
+            old_cwd = os.getcwd()
+            os.chdir(tmp)
+            try:
+                result = self._run(["--split", "2"], claude_dir)
+                assert result.exit_code == 0
+                assert (Path(tmp) / ".mistakes-tmp").exists()
+            finally:
+                os.chdir(old_cwd)
+
+    def test_mistakes_outdir_without_split_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            claude_dir = _make_claude_dir(Path(tmp))
+            result = self._run(["--out-dir", "/tmp/nope"], claude_dir)
+            assert result.exit_code != 0
+
+
 class TestParseDate:
     def test_bad_date(self):
         runner = CliRunner()
