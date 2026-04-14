@@ -13,14 +13,19 @@ If you need a full reference for claudephant's commands and filters, run
 `claudephant --agent-help` (~1k tokens). For subagents, include the output of
 `--agent-help` in their prompt so they know how to use the tool.
 
-## Two Entry Points
+## Entry Points
 
-This skill supports two distinct modes. Ask the user which applies, or infer from context:
+This skill supports several modes. Ask the user which applies, or infer from context:
 
 1. **"Mine my history"** — The user wants to discover patterns across many sessions.
    Start at Phase 1 (Discovery).
 2. **"Turn that into a skill"** — The user just did something and wants to capture it
    immediately. Skip to Phase 2 (Deep Dive) using the current or most recent session.
+3. **"Find API mistakes"** — The user wants to find what Claude gets wrong with a
+   specific library. Use `/mine-api-mistakes` instead — it's a specialized command
+   that extracts error/correction turns with `claudephant mistakes`, fans out
+   subagents for analysis, and compiles a shareable catalog. This skill focuses on
+   workflow patterns; `/mine-api-mistakes` focuses on code mistakes.
 
 ## Context Conservation Strategy
 

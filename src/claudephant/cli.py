@@ -92,6 +92,30 @@ ALL FILTERS COMPOSE. Examples:
   claudephant session abc123 --json | jq '.[].tool_calls[].name' | sort | uniq -c
   claudephant session abc123 --tool Edit --no-results  # just edit calls, no output
 
+### claudephant mistakes [-p PROJECT] [-k KEYWORDS] [--since DATE]
+Extract error and correction turns across all sessions as JSON.
+Finds turns where something went wrong and tags each with a signal list:
+  - user_correction  — user told Claude it was wrong (highest value)
+  - error            — tool result had a traceback or error
+  - self_correction  — Claude acknowledged a mistake (high false-positive rate)
+A single turn can have multiple signals.
+
+Options:
+  -p/--project NAME   Filter sessions by project directory (repeatable)
+  -k/--keywords PAT   Only turns matching these regex patterns (repeatable)
+  -s/--since DATE     Only sessions after this date
+
+Output is a JSON array of session objects, each with an array of error turns.
+Progress goes to stderr, data to stdout.
+
+Content is truncated (assistant text to 2000 chars, tool results to 1000 chars).
+Use `claudephant session ID --turn N --full` to get complete turn content.
+
+Examples:
+  claudephant mistakes -k pandas -k DataFrame     # pandas across all projects
+  claudephant mistakes -p mylib --since 2026-03    # recent project errors
+  claudephant mistakes > /tmp/mistakes.json        # save for analysis
+
 ### claudephant summary [-p PROJECT] [--since DATE]
 Cross-session analysis showing:
 - Most Common Prompts (2+ occurrences, normalized)
