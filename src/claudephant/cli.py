@@ -570,17 +570,20 @@ def mistakes(project, since, keywords):
 
     keyword_pattern = None
     if keywords:
-        keyword_pattern = re.compile(
-            r"\b(" + "|".join(keywords) + r")\b", re.IGNORECASE
-        )
+        # Don't wrap in \b — user controls word boundaries in their patterns.
+        # This lets patterns like 'pd\.' and 'xr\.' work correctly.
+        keyword_pattern = re.compile("(" + "|".join(keywords) + ")", re.IGNORECASE)
+
+    # Count total sessions for progress reporting
+    all_summaries = build_index(project_filter=project, since=since_dt)
+    total_sessions = len(all_summaries)
+    click.echo(f"Scanning {total_sessions} sessions...", err=True)
 
     results = []
-    session_count = 0
     for session_data in extract_mistakes(
         project_filter=project, since=since_dt, keyword_pattern=keyword_pattern
     ):
         results.append(session_data)
-        session_count += 1
         click.echo(
             f"  {session_data['session_id'][:8]} "
             f"{session_data['num_error_turns']} error turns "
@@ -588,9 +591,20 @@ def mistakes(project, since, keywords):
             err=True,
         )
 
+    if not results:
+        click.echo("\nNo error turns found.", err=True)
+        if keyword_pattern:
+            click.echo(
+                "Try without -k to check if sessions exist, "
+                "or broaden the keyword patterns.",
+                err=True,
+            )
+        click.echo("[]")
+        return
+
     total_turns = sum(r["num_error_turns"] for r in results)
     click.echo(
-        f"\n{total_turns} error turns from {len(results)}/{session_count} sessions",
+        f"\n{total_turns} error turns from {len(results)}/{total_sessions} sessions",
         err=True,
     )
     click.echo(json.dumps(results, indent=2))

@@ -12,6 +12,7 @@ has used and made mistakes with.
 ```bash
 git clone https://github.com/ianhi/claudephant
 cd claudephant
+uv tool install -e .
 ```
 
 Then open Claude Code and run:
