@@ -28,6 +28,15 @@ For development: `uv tool install -e .` or `uv run claudephant <command>`.
 
 ## Key Design Decisions
 
+- **Tools + prompts, not tools alone** — Claudephant provides CLI tools for
+  extracting and querying conversation data. But for most users, the entry point
+  is a slash command (`/mine-api-mistakes`, `/conversation-miner`) whose prompt
+  guides Claude through the full workflow. The tools do minimal processing and
+  output JSON; the prompts carry the intelligence — what to search for, how to
+  weight results, when to use subagents, and what output format to produce.
+  **The prompts are the product.** If a prompt is vague or misses a step, the
+  whole experience breaks, regardless of how good the tools are. Treat slash
+  command prompts with the same care as code.
 - **No heavy dependencies** — only `click` for CLI; everything else is stdlib
 - **Unix-friendly output** — plain text, no color codes, one item per line, stdout for
   data / stderr for errors. `--json` for structured piping through `jq`. Designed to
@@ -50,9 +59,9 @@ assistant-first messages, unknown tools. 89 tests, 97% coverage.
 
 ## Commands
 
-- **`/mine-api-mistakes`** — Scans your conversation history for API mistakes
-  Claude makes with icechunk, zarr-python, and xarray. Produces a shareable
-  mistake catalog. See `scripts/README.md` for details and customization.
+- **`/mine-api-mistakes`** — Scans conversation history for API mistakes Claude
+  makes with any library. Guides the agent through extraction, parallel analysis,
+  and compilation into a shareable catalog. See `scripts/README.md`.
 
 ## Skills
 
