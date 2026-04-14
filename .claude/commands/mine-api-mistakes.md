@@ -27,10 +27,12 @@ claudephant list | head -5
 
 If `claudephant` is not found, run `uv tool install -e .` first.
 
-Then extract error turns:
+Then extract error turns. **Run extraction once, save to a file, and do all
+subsequent analysis on that file.** Extraction scans every session and is slow —
+never re-run it to pipe into different filters.
 
 ```
-claudephant mistakes [OPTIONS] > mistakes.json
+claudephant mistakes [OPTIONS] > /tmp/mistakes.json 2>/tmp/mistakes.log
 ```
 
 Options:
@@ -69,21 +71,24 @@ with empty data.
 
 ## Step 2: Assess the data volume
 
-Read `mistakes.json` to check the size. If it's small enough to analyze
+Read `/tmp/mistakes.json` to check the size. If it's small enough to analyze
 directly (under ~100 error turns total), skip batching and go straight to Step 4.
 
 If it's large (100+ error turns):
 
 ## Step 3: Batch and analyze in parallel
 
-Split `mistakes.json` into 4-6 batches for parallel analysis. The split is
-simple: divide sessions into groups, keeping each group roughly equal in total
-error turns. Cap at ~25 turns per session (keep the highest-value ones: turns
-with `user_correction` first, then `error` turns with AttributeError/TypeError,
-then the rest).
+Split `/tmp/mistakes.json` into 4-6 batch files (`/tmp/batch_0.json` through
+`/tmp/batch_5.json`). The split is simple: divide sessions into groups, keeping
+each group roughly equal in total error turns. Cap at ~25 turns per session
+(keep the highest-value ones: turns with `user_correction` first, then `error`
+turns with AttributeError/TypeError, then the rest).
 
-Launch sonnet subagents in parallel, one per batch. Each should find concrete
-API mistake patterns: wrong code, correct code, error message, frequency.
+**Use subagents for analysis, not grep/jq.** Grep can count signals but can't
+understand code patterns. Launch haiku or sonnet subagents in parallel, one per
+batch. Each reads its batch file and identifies concrete API mistake patterns:
+wrong code, correct code, error message, frequency. Subagents are cheap and
+can understand context that text matching cannot.
 
 If the user has a local checkout of the library being analyzed (check common
 locations like `~/Documents/dev/LIBNAME` or `../LIBNAME`), read key source
