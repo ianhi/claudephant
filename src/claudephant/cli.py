@@ -528,6 +528,74 @@ def session_cmd(
         click.echo()
 
 
+@main.command("mistakes")
+@click.option("--project", "-p", default=None, help="Filter by project name substring.")
+@click.option(
+    "--since", "-s", default=None, help="Only sessions after this date (YYYY-MM-DD)."
+)
+@click.option(
+    "--keywords",
+    "-k",
+    multiple=True,
+    help="Only turns matching these regex patterns (repeatable).",
+)
+def mistakes(project, since, keywords):
+    """Extract error and correction turns across all sessions as JSON.
+
+    \b
+    Finds turns where something went wrong: error tracebacks, user corrections
+    ("no, that's wrong"), and Claude self-corrections ("actually, I was wrong").
+
+    \b
+    Each turn includes a "signal" field classifying what triggered it:
+      error            — tool result had an error or traceback
+      user_correction  — user prompt corrected Claude
+      self_correction  — Claude acknowledged a mistake
+
+    \b
+    Output is one JSON object per session (to stdout), each containing an
+    array of error turns. Designed for piping through jq or feeding to agents.
+
+    \b
+    Examples:
+      claudephant mistakes                              # all sessions, all errors
+      claudephant mistakes -p myproject                 # one project
+      claudephant mistakes -k pandas -k DataFrame       # only pandas-related
+      claudephant mistakes --since 2026-03-01           # recent only
+      claudephant mistakes | jq '.[].turns[] | select(.signal[] == "user_correction")'
+    """
+    from .mistakes import extract_mistakes
+
+    since_dt = _parse_date(since) if since else None
+
+    keyword_pattern = None
+    if keywords:
+        keyword_pattern = re.compile(
+            r"\b(" + "|".join(keywords) + r")\b", re.IGNORECASE
+        )
+
+    results = []
+    session_count = 0
+    for session_data in extract_mistakes(
+        project_filter=project, since=since_dt, keyword_pattern=keyword_pattern
+    ):
+        results.append(session_data)
+        session_count += 1
+        click.echo(
+            f"  {session_data['session_id'][:8]} "
+            f"{session_data['num_error_turns']} error turns "
+            f"({session_data['project']})",
+            err=True,
+        )
+
+    total_turns = sum(r["num_error_turns"] for r in results)
+    click.echo(
+        f"\n{total_turns} error turns from {len(results)}/{session_count} sessions",
+        err=True,
+    )
+    click.echo(json.dumps(results, indent=2))
+
+
 @main.command("summary")
 @click.option("--project", "-p", default=None, help="Filter by project name substring.")
 @click.option(

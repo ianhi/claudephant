@@ -1,85 +1,83 @@
-You are running the API mistake mining pipeline. This scans the user's Claude Code
-conversation history, finds sessions where Claude made mistakes with specific
-library APIs, and produces a shareable mistake catalog.
+You are mining the user's Claude Code conversation history for API mistakes
+Claude makes with specific libraries. Your goal: produce a shareable catalog
+of recurring mistake patterns with correct alternatives.
 
-## What to do
+## Understanding the request
 
-Run the full pipeline automatically. Do not ask the user to run commands — you
-run everything. Report progress as you go.
+The user may specify libraries, project names, or nothing. Examples:
+- "mine mistakes with pandas" → use `-k pandas -k 'pd\.' -k DataFrame`
+- "--project mylib" → pass through
+- No arguments → scan everything
 
-### 1. Extract error turns
-
-Run this, passing through any $ARGUMENTS the user provided:
-
-```
-uv run python scripts/extract_api_mistakes.py $ARGUMENTS
-```
-
-If no arguments were given, run it with no flags (scans all icechunk/zarr/xarray
-sessions). This produces `scripts/api_mistakes_data/` with one JSON per session.
-
-Report how many sessions were scanned and how many error turns were found.
-
-### 2. Prepare batches
+## Step 1: Discover what's available
 
 ```
-uv run python scripts/prepare_batches.py
+claudephant list
 ```
 
-This scores turns by informativeness and distributes them across 6 balanced
-batches in `scripts/api_mistakes_batches/`.
+Skim the output to understand what projects and sessions exist. Use this to
+decide filtering strategy. Remember: a library may be used in projects not
+named after it (e.g. xarray used in a climate-analysis project).
 
-### 3. Analyze in parallel
+## Step 2: Extract error turns
 
-Launch 6 sonnet subagents in the background, one per batch file. Each agent
-should read its batch and identify concrete API mistake patterns. Use this
-prompt for each:
+```
+claudephant mistakes [OPTIONS] > mistakes.json
+```
 
-> Read `scripts/api_mistakes_batches/batch_N.json`. These are turns from Claude
-> Code sessions where errors occurred while using icechunk, zarr-python, or
-> xarray APIs.
->
-> Find specific, concrete API mistakes. For each pattern:
-> - **Pattern name**: short descriptive name
-> - **Wrong code**: what Claude wrote (exact)
-> - **Right code**: what the correct approach is
-> - **Error**: the error message or user correction
-> - **Count**: how many times you saw this in the batch
->
-> Skip generic Python errors, git issues, formatting, CI config. Focus on wrong
-> API calls, wrong arguments, outdated patterns, lifecycle confusion, and
-> over-specific internal imports.
+Options:
+- `-p/--project NAME` — filter by project directory (substring, repeatable)
+- `-k/--keywords PATTERN` — only turns matching these regex patterns (repeatable)
+- `-s/--since DATE` — recent sessions only
 
-### 4. Compile the catalog
+Each turn in the output has a `signal` field:
+- `user_correction` — **highest value**: the user told Claude it was wrong
+- `error` — a tool result had a traceback or error
+- `self_correction` — Claude acknowledged its own mistake
 
-Once all 6 agents report back, merge their findings into a single catalog:
+Cast a wide net. You can filter later. If the user named a specific library,
+use `-k` with the library name, common abbreviations, and key class names.
 
-- Deduplicate patterns that appeared in multiple batches
-- Rank by frequency (how many occurrences) and severity
-- Group into categories: lifecycle mistakes, async/sync confusion,
-  over-specification, v2-to-v3 migration, etc.
-- For each pattern, include: wrong code, correct code, error message, count
+Report how many sessions and error turns were found.
 
-Write the catalog to `scripts/api_mistake_catalog.md`. Use the format from the
-existing file at that path as a template.
+## Step 3: Assess the data volume
 
-### 5. Produce shareable output
+Read `mistakes.json` to check the size. If it's small enough to analyze
+directly (under ~100 turns), skip batching and go straight to Step 5.
 
-The catalog contains session IDs and local paths — strip these for the shareable
-version. Create `scripts/api_mistakes_shareable.md` with:
+If it's large:
 
-- No session IDs, timestamps, or local file paths
-- Just the patterns: name, wrong code, right code, explanation, frequency
-- A "Meta-patterns" section grouping mistakes by root cause
-- A header noting how many sessions/turns were analyzed and the date range
+## Step 4: Batch and analyze in parallel
 
-Tell the user: "The shareable catalog is at `scripts/api_mistakes_shareable.md`.
-You can paste it into a CLAUDE.md, a skill file, or share it directly."
+Write a quick Python script to split the data into 4-6 batches, sampling the
+most informative turns per session. Prioritize:
+1. Turns with `user_correction` signal (highest weight)
+2. Turns with `error` signal containing AttributeError/TypeError (wrong API)
+3. Turns with `self_correction` signal
 
-## Customizing for other libraries
+Launch sonnet subagents in parallel, one per batch. Each should find concrete
+API mistake patterns: wrong code, correct code, error message, frequency.
 
-Tell the user: to mine for a different library, edit `API_KEYWORDS` in
-`scripts/extract_api_mistakes.py` to match your library's API surface, and
-adjust the `--project` filter.
+If the user has a local checkout of the library being analyzed, read key source
+files to understand the current API. This helps distinguish real mistakes from
+correct-but-unfamiliar code.
+
+## Step 5: Compile the catalog
+
+Merge all findings into `api_mistakes.md`:
+
+- Deduplicate patterns across batches
+- Rank by frequency and severity
+- Group into categories (e.g. lifecycle, async/sync, over-specification,
+  version migration)
+- Each entry: pattern name, wrong code, correct code, error message, frequency
+- Add a "Meta-patterns" section grouping mistakes by root cause
+
+Strip session IDs and local paths — the output should be shareable.
+
+Tell the user what they can do with it:
+- Paste into a CLAUDE.md so Claude avoids these mistakes
+- Save as a `.claude/skills/` file
+- Share with teammates
 
 $ARGUMENTS

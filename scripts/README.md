@@ -1,8 +1,11 @@
 # Mining API Mistakes from Claude Code History
 
-Find what Claude gets wrong when working with your libraries. This pipeline
-scans your Claude Code conversation history, extracts turns where API errors
-occurred, and uses parallel AI analysis to identify recurring mistake patterns.
+Find what Claude gets wrong when working with your libraries. This uses
+`claudephant mistakes` to extract error turns from your conversation history,
+then parallel AI analysis to identify recurring mistake patterns.
+
+Works with any library — pandas, fastapi, your internal SDK, anything Claude
+has used and made mistakes with.
 
 ## Quick Start
 
@@ -17,20 +20,55 @@ Then open Claude Code and run:
 /mine-api-mistakes
 ```
 
-That's it. Claude runs the full pipeline (extract, batch, analyze, compile) and
-produces a shareable markdown catalog of mistake patterns.
+Or tell Claude what you want:
+
+```
+/mine-api-mistakes mine mistakes Claude makes with the pandas API
+```
+
+Claude handles everything: extraction, analysis, and compilation.
+
+## How It Works
+
+### The CLI tool
+
+`claudephant mistakes` extracts turns where something went wrong. Each turn is
+tagged with what triggered it:
+
+- **`user_correction`** — you told Claude it was wrong (highest signal)
+- **`error`** — a tool result had a traceback or error
+- **`self_correction`** — Claude acknowledged its own mistake
+
+```bash
+# All errors across all sessions
+claudephant mistakes
+
+# Filter by project
+claudephant mistakes -p myproject
+
+# Filter by library keywords
+claudephant mistakes -k pandas -k DataFrame -k 'pd\.'
+
+# Recent sessions only
+claudephant mistakes -p mylib --since 2026-03-01
+
+# Pipe through jq for just user corrections
+claudephant mistakes | jq '.[].turns[] | select(.signal[] == "user_correction")'
+```
+
+### The slash command
+
+`/mine-api-mistakes` wraps the CLI tool with agent intelligence:
+
+1. **Discover** — lists your sessions to understand what's available
+2. **Extract** — runs `claudephant mistakes` with appropriate filters
+3. **Analyze** — fans out parallel subagents to find patterns, weighting
+   user corrections highest
+4. **Compile** — produces a shareable markdown catalog
 
 ## What You Get
 
-A markdown file (`scripts/api_mistakes_shareable.md`) listing every recurring
-mistake pattern, ranked by frequency. Each entry has:
-
-- The **wrong code** Claude wrote
-- The **correct alternative**
-- The **error message** that resulted
-- How many times it happened
-
-Example entry:
+A markdown file listing recurring mistake patterns, ranked by frequency:
 
 ```markdown
 ## Moves require rearrange_session, not writable_session
@@ -46,86 +84,25 @@ Example entry:
     session.move("/a", "/b")
 ```
 
-## What You Can Do With It
+## What To Do With It
 
-**Paste into a CLAUDE.md.** Drop the catalog (or the patterns that matter most)
-into your project's `CLAUDE.md` so Claude avoids those mistakes in future
-sessions.
+**Paste into a CLAUDE.md** so Claude avoids those mistakes in future sessions.
 
-**Turn it into a skill file.** The
+**Save as a skill file.** Put it in `.claude/skills/` in any project. The
 [scientific-python-skills](https://github.com/ianhi/scientific-python-skills)
-repo has pre-built skill files for icechunk, zarr, and xarray that were produced
-this way. Copy them to `.claude/skills/` in any project:
+repo has pre-built skill files for icechunk, zarr, and xarray produced this way:
 
 ```bash
 mkdir -p .claude/skills
 curl -o .claude/skills/icechunk.md \
   https://raw.githubusercontent.com/ianhi/scientific-python-skills/main/skills/icechunk.md
-curl -o .claude/skills/zarr.md \
-  https://raw.githubusercontent.com/ianhi/scientific-python-skills/main/skills/zarr.md
 ```
 
-**Share with your team.** The shareable catalog has no personal data (session
-IDs and local paths are stripped). Send it to co-workers or post it in a repo.
-
-## Filtering
-
-Pass arguments to narrow the search:
-
-```
-/mine-api-mistakes --project mylib --since 2026-01-01
-```
-
-- `--project NAME` filters sessions by project directory name (substring match)
-- `--since YYYY-MM-DD` filters to sessions after a date
-
-## Mining for Other Libraries
-
-The default targets are icechunk, zarr-python, and xarray. To mine mistakes for
-a different library:
-
-1. Edit `API_KEYWORDS` in `scripts/extract_api_mistakes.py` — add your library's
-   function names, class names, and common import patterns
-2. Run `/mine-api-mistakes --project yourlib`
-
-The rest of the pipeline (batching, analysis, compilation) works unchanged.
-
-## How It Works
-
-The pipeline has four stages:
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│ 1. EXTRACT                                                   │
-│    claudephant scans ~/.claude/projects/**/*.jsonl            │
-│    Filters to sessions matching target libraries             │
-│    Keeps only turns with errors, corrections, or retries     │
-│    → scripts/api_mistakes_data/{session_id}.json             │
-├──────────────────────────────────────────────────────────────┤
-│ 2. BATCH                                                     │
-│    Scores turns by informativeness:                          │
-│      error tracebacks > self-corrections > user corrections  │
-│    Samples top 25 per session                                │
-│    Distributes across 6 balanced batches (~170KB each)       │
-│    → scripts/api_mistakes_batches/batch_{0-5}.json           │
-├──────────────────────────────────────────────────────────────┤
-│ 3. ANALYZE (parallel)                                        │
-│    6 sonnet subagents run simultaneously                     │
-│    Each reads one batch and identifies mistake patterns      │
-│    Reports: wrong code, correct code, error, frequency       │
-├──────────────────────────────────────────────────────────────┤
-│ 4. COMPILE                                                   │
-│    Merges findings from all 6 agents                         │
-│    Deduplicates, ranks by frequency, groups by category      │
-│    → scripts/api_mistake_catalog.md (with session refs)      │
-│    → scripts/api_mistakes_shareable.md (clean, no PII)       │
-└──────────────────────────────────────────────────────────────┘
-```
+**Share with your team.** The output has no personal data — just patterns and
+code examples.
 
 ## Prerequisites
 
 - Python 3.11+
 - [uv](https://docs.astral.sh/uv/)
-- Claude Code conversation history in `~/.claude/projects/` (you need to have
-  actually used Claude Code with the target libraries)
-- The pipeline takes 3-5 minutes depending on how many sessions you have
+- Claude Code conversation history in `~/.claude/projects/`

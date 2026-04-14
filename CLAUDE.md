@@ -6,9 +6,10 @@ CLI tool for mining Claude Code conversation transcripts (`~/.claude/projects/**
 
 ```
 src/claudephant/
-├── cli.py      # Click CLI entry point (list, prompts, session, summary commands)
-├── parser.py   # JSONL parsing engine (Session, Turn, ToolCall, ToolResult dataclasses)
-├── index.py    # Index building and session search
+├── cli.py        # Click CLI (list, prompts, session, summary, mistakes)
+├── parser.py     # JSONL parsing engine (Session, Turn, ToolCall, ToolResult)
+├── index.py      # Index building and session search
+├── mistakes.py   # Error/correction turn extraction
 ```
 
 ## Install
