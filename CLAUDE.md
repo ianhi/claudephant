@@ -47,6 +47,12 @@ Tests use JSONL fixture files in `tests/fixtures/` covering all message types:
 full sessions, compaction boundaries, meta messages, mixed content, error results,
 assistant-first messages, unknown tools. 89 tests, 97% coverage.
 
+## Commands
+
+- **`/mine-api-mistakes`** — Scans your conversation history for API mistakes
+  Claude makes with icechunk, zarr-python, and xarray. Produces a shareable
+  mistake catalog. See `scripts/README.md` for details and customization.
+
 ## Skills
 
 - `.claude/skills/conversation-miner/` — Skill for using claudephant to discover

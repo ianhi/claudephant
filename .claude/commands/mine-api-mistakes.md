@@ -1,81 +1,85 @@
-Mine Claude Code conversation history for common API mistakes with scientific Python libraries (icechunk, zarr-python, xarray).
+You are running the API mistake mining pipeline. This scans the user's Claude Code
+conversation history, finds sessions where Claude made mistakes with specific
+library APIs, and produces a shareable mistake catalog.
 
-## What this does
+## What to do
 
-1. Uses `claudephant` to scan your conversation history for sessions involving target libraries
-2. Extracts turns containing errors, self-corrections, and user corrections
-3. Scores and samples the most informative error turns per session
-4. Fans out parallel sonnet subagents to analyze batches for mistake patterns
-5. Compiles a consolidated catalog of API mistakes with correct alternatives
+Run the full pipeline automatically. Do not ask the user to run commands — you
+run everything. Report progress as you go.
 
-## Instructions
+### 1. Extract error turns
 
-Run the extraction and batching pipeline, then analyze with subagents.
-
-### Step 1: Extract error turns
-
-Run the extraction script. You can filter by project name and date:
+Run this, passing through any $ARGUMENTS the user provided:
 
 ```
-uv run python scripts/extract_api_mistakes.py
+uv run python scripts/extract_api_mistakes.py $ARGUMENTS
 ```
 
-Or with filters:
-```
-uv run python scripts/extract_api_mistakes.py --project icechunk --since 2026-03-01
-```
+If no arguments were given, run it with no flags (scans all icechunk/zarr/xarray
+sessions). This produces `scripts/api_mistakes_data/` with one JSON per session.
 
-This creates `scripts/api_mistakes_data/` with one JSON file per session containing only API-relevant error turns.
+Report how many sessions were scanned and how many error turns were found.
 
-### Step 2: Prepare batches for parallel analysis
+### 2. Prepare batches
 
 ```
 uv run python scripts/prepare_batches.py
 ```
 
-This creates `scripts/api_mistakes_batches/` with 6 balanced batch files, each containing sampled turns scored by informativeness (error tracebacks > self-corrections > user corrections).
+This scores turns by informativeness and distributes them across 6 balanced
+batches in `scripts/api_mistakes_batches/`.
 
-### Step 3: Launch parallel subagents
+### 3. Analyze in parallel
 
-For each batch file in `scripts/api_mistakes_batches/batch_*.json`, launch a sonnet subagent with this prompt template:
+Launch 6 sonnet subagents in the background, one per batch file. Each agent
+should read its batch and identify concrete API mistake patterns. Use this
+prompt for each:
 
-> You are analyzing Claude Code conversation transcripts to find common API mistakes with icechunk, zarr-python, and xarray.
+> Read `scripts/api_mistakes_batches/batch_N.json`. These are turns from Claude
+> Code sessions where errors occurred while using icechunk, zarr-python, or
+> xarray APIs.
 >
-> Read the batch file at `scripts/api_mistakes_batches/batch_N.json`.
+> Find specific, concrete API mistakes. For each pattern:
+> - **Pattern name**: short descriptive name
+> - **Wrong code**: what Claude wrote (exact)
+> - **Right code**: what the correct approach is
+> - **Error**: the error message or user correction
+> - **Count**: how many times you saw this in the batch
 >
-> For each mistake pattern found, provide:
-> - Pattern name
-> - What Claude did wrong (exact code)
-> - What the correct approach is (exact code)
-> - Error message or user correction as evidence
-> - How many times you saw it
->
-> Focus on REAL API mistakes: wrong method names, wrong arguments, outdated patterns, lifecycle confusion, over-specific imports. Skip generic Python errors, git issues, formatting, CI config.
+> Skip generic Python errors, git issues, formatting, CI config. Focus on wrong
+> API calls, wrong arguments, outdated patterns, lifecycle confusion, and
+> over-specific internal imports.
 
-Launch all 6 in parallel as background agents. Each batch is ~170KB, well within context.
+### 4. Compile the catalog
 
-### Step 4: Compile the catalog
+Once all 6 agents report back, merge their findings into a single catalog:
 
-Once all agents report back, merge their findings:
-- Deduplicate patterns that appear across batches
-- Rank by frequency and impact
-- Group into categories (lifecycle, async/sync, over-specification, v2->v3 migration)
-- Write to `scripts/api_mistake_catalog.md`
+- Deduplicate patterns that appeared in multiple batches
+- Rank by frequency (how many occurrences) and severity
+- Group into categories: lifecycle mistakes, async/sync confusion,
+  over-specification, v2-to-v3 migration, etc.
+- For each pattern, include: wrong code, correct code, error message, count
 
-The existing catalog at `scripts/api_mistake_catalog.md` shows the expected output format.
+Write the catalog to `scripts/api_mistake_catalog.md`. Use the format from the
+existing file at that path as a template.
 
-### Step 5: Update skill files
+### 5. Produce shareable output
 
-If you have a `scientific-python-skills` checkout, merge new findings into the existing skill files:
-- `skills/icechunk.md` — icechunk-specific patterns
-- `skills/zarr.md` — zarr v3 patterns
-- `skills/xarray.md` — xarray integration patterns
+The catalog contains session IDs and local paths — strip these for the shareable
+version. Create `scripts/api_mistakes_shareable.md` with:
 
-## Customizing
+- No session IDs, timestamps, or local file paths
+- Just the patterns: name, wrong code, right code, explanation, frequency
+- A "Meta-patterns" section grouping mistakes by root cause
+- A header noting how many sessions/turns were analyzed and the date range
 
-To mine mistakes for a different library:
-1. Edit `API_KEYWORDS` in `extract_api_mistakes.py` to match your library's API surface
-2. Adjust `--project` filter to match your project directories
-3. Run the same pipeline
+Tell the user: "The shareable catalog is at `scripts/api_mistakes_shareable.md`.
+You can paste it into a CLAUDE.md, a skill file, or share it directly."
 
-$ARGUMENTS: Optional: --project NAME --since YYYY-MM-DD (filters passed to extraction)
+## Customizing for other libraries
+
+Tell the user: to mine for a different library, edit `API_KEYWORDS` in
+`scripts/extract_api_mistakes.py` to match your library's API surface, and
+adjust the `--project` filter.
+
+$ARGUMENTS
