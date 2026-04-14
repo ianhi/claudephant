@@ -9,6 +9,14 @@ The user may specify libraries, project names, or nothing. Examples:
 - "--project mylib" → pass through to extraction
 - No arguments → scan everything, all errors
 
+**Key insight:** `-k` (keywords) searches turn content, not project names. Since
+Python libraries are imported by name (`import zarr`, `import pandas as pd`),
+`-k` with the library name catches usage across ALL projects. This is almost
+always better than `-p`, which only filters by project directory name.
+
+Use `-k libraryname` as the primary filter. Add `-p` only if the user wants to
+narrow to specific projects.
+
 ## Step 0: Check tool availability
 
 Run `claudephant --help` to verify the tool is installed. If it fails, run:
@@ -50,7 +58,10 @@ Each turn in the output has a `signal` list with one or more of:
 A single turn can have multiple signals (e.g. both `error` and `user_correction`).
 
 Cast a wide net. If the user named a specific library, use `-k` with the library
-name, common abbreviations (`pd`, `xr`, `np`), and key class names.
+name (which matches `import libraryname` statements), common abbreviations
+(`pd`, `xr`, `np`), and key class names. Don't use `-p` unless the user
+specifically asked to narrow by project — the library is likely used across
+multiple projects.
 
 Report how many sessions and error turns were found.
 
