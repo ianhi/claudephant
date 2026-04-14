@@ -76,23 +76,28 @@ Report how many sessions and error turns were found.
 without `-k` to verify sessions exist, or broadening the search. Don't proceed
 with empty data.
 
-## Step 2: Assess the data volume
+## Step 2: Assess volume, then extract
 
-First, get a quick overview with `--stats`:
+First, get a quick overview with `--stats` (this scans sessions but doesn't
+dump JSON):
 
 ```
 claudephant mistakes [OPTIONS] --stats
 ```
 
-This prints session counts, signal breakdown, and top projects without dumping
-JSON. Use it to decide whether to add `-k` filters or proceed with full
-extraction.
+This prints session counts, signal breakdown, and top projects. Use it to
+decide whether to add `-k` filters or proceed.
 
-Read `.mistakes-tmp/mistakes.json` to check the size. If it's small enough to
-analyze directly (under ~100 error turns total), use `--top 100` and skip
-batching — go straight to Step 4.
+**Then extract once.** Don't run extraction before `--stats` — both scan all
+sessions, so running both is redundant. After `--stats`, choose your approach:
 
-If it's large (100+ error turns):
+- **Small data (under ~50 error turns):** Use `--top 50` and skip batching —
+  go straight to Step 4.
+- **Medium data (50–100 turns):** Use `--top 100` and go to Step 4.
+- **Large data (100+ turns):** Do a quick first pass with `--top 30` to get
+  the highest-value turns (mostly `user_correction`). Analyze those yourself
+  or with a single subagent. If the patterns are well-covered, stop. If you
+  suspect more patterns exist in the tail, proceed to Step 3.
 
 ## Step 3: Batch and analyze in parallel
 
@@ -107,11 +112,11 @@ balanced by total error turns per batch. Turns are capped at 25 per session
 (override with `--max-per-session N`) and prioritized: `user_correction` first,
 then `error`, then `self_correction`.
 
-**Use sonnet subagents for analysis, not grep/jq.** Grep can count signals but
-can't understand code patterns. Launch sonnet subagents in parallel, one per
-batch. Each reads its batch file and identifies concrete API mistake patterns:
-wrong code, correct code, error message, frequency. Subagents are cheap and
-can understand context that text matching cannot.
+**Use subagents for analysis, not grep/jq.** Grep can count signals but can't
+understand code patterns. Launch subagents in parallel, one per batch. Use
+haiku for initial triage or sonnet for deeper analysis — the user may specify
+a preference. Each subagent reads its batch file and identifies concrete API
+mistake patterns: wrong code, correct code, error message, frequency.
 
 If the user has a local checkout of the library being analyzed (check common
 locations like `~/Documents/dev/LIBNAME` or `../LIBNAME`), **read key source
@@ -119,7 +124,32 @@ files yourself (main agent)** to understand the current API surface, then
 include a brief API summary in each subagent's prompt. Subagents cannot read
 files outside the project directory — don't delegate source reading to them.
 
+### Subagent skip-criteria
+
+Most turns in a batch will be false positives — errors in projects that happen
+to use the target library but where the actual mistake is unrelated. The
+subagent prompt must include guidance on how to triage efficiently. Adapt this
+to the specific library being analyzed:
+
+> "Triage each turn by signal type:
+>
+> - **`user_correction` turns**: Always read carefully. The user may be
+>   correcting a bug, pointing out a better idiom, or teaching Claude
+>   something about the API. These are high-value even when there's no error.
+> - **`error` turns**: Read the traceback/error first. If the error doesn't
+>   involve [LIBRARY] APIs — e.g. it's a linting failure, a build tool issue,
+>   or an unrelated test — skip it. But don't skip just because the traceback
+>   comes from a different package; [LIBRARY] errors can surface through
+>   wrapper libraries, backends, or downstream consumers.
+> - **`self_correction` turns**: Skim only. High false-positive rate. Only
+>   analyze if the correction is clearly about [LIBRARY] usage."
+
 ## Step 4: Compile the catalog
+
+**Check for an existing catalog first.** If `api_mistakes.md` already exists,
+read it before compiling. Tell subagents what patterns are already documented
+so they focus on NEW patterns. Update the existing file incrementally rather
+than rewriting from scratch.
 
 Merge all findings into `api_mistakes.md` in the current directory:
 
@@ -128,6 +158,8 @@ Merge all findings into `api_mistakes.md` in the current directory:
 - Group into categories (e.g. lifecycle, async/sync, over-specification,
   version migration, wrong method names)
 - Each entry: pattern name, wrong code, correct code, error message, frequency
+- Include corrections and idiom improvements from `user_correction` turns,
+  not just errors — "here's a better way" is as valuable as "this is broken"
 - Add a "Meta-patterns" section grouping mistakes by root cause
 - Include a header with: date range of sessions analyzed, number of sessions
   scanned, number of error turns found
