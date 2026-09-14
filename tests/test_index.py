@@ -1,7 +1,7 @@
 """Tests for the index builder."""
 
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from claudephant.index import build_index, find_session, summarize_session
@@ -99,12 +99,12 @@ class TestBuildIndex:
             )
 
             # Session is from 2026-02-20, filter to after 2026-03-01
-            future_dt = datetime(2026, 3, 1, tzinfo=timezone.utc)
+            future_dt = datetime(2026, 3, 1, tzinfo=UTC)
             summaries = build_index(claude_dir=Path(tmp), since=future_dt)
             assert len(summaries) == 0
 
             # Filter to before the session
-            past_dt = datetime(2026, 1, 1, tzinfo=timezone.utc)
+            past_dt = datetime(2026, 1, 1, tzinfo=UTC)
             summaries = build_index(claude_dir=Path(tmp), since=past_dt)
             assert len(summaries) == 1
 
