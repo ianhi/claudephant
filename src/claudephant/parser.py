@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -126,7 +126,7 @@ def _parse_timestamp(ts: str) -> datetime:
     ts = ts.replace("Z", "+00:00")
     dt = datetime.fromisoformat(ts)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -166,7 +166,7 @@ def parse_session(jsonl_path: Path) -> Session:
             end_time = parsed
 
     if start_time is None:
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
     if end_time is None:
         end_time = start_time
 
