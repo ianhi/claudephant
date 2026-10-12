@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import click
 
@@ -16,7 +16,7 @@ def _parse_date(date_str: str) -> datetime:
     for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S"):
         try:
             dt = datetime.strptime(date_str, fmt)
-            return dt.replace(tzinfo=timezone.utc)
+            return dt.replace(tzinfo=UTC)
         except ValueError:
             continue
     raise click.BadParameter(f"Cannot parse date: {date_str}")
@@ -180,7 +180,6 @@ def main():
     For AI agents: `claudephant --agent-help` prints a comprehensive reference
     with all commands, filters, output format, and filtering rules (~1k tokens).
     """
-    pass
 
 
 @main.command("list")
