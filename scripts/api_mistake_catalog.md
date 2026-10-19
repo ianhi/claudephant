@@ -84,11 +84,11 @@ Commits happen on the session, not the store.
 ```python
 # WRONG (two errors: wrong session type AND wrong method name)
 session = repo.writable_session("main")
-session.move_node("/a", "/b")    # AttributeError: no attribute 'move_node'
+session.move_node("/a", "/b")  # AttributeError: no attribute 'move_node'
 
 # WRONG (right method name, wrong session type)
 session = repo.writable_session("main")
-session.move("/a", "/b")         # IcechunkError: need a rearrange session
+session.move("/a", "/b")  # IcechunkError: need a rearrange session
 
 # CORRECT
 session = repo.rearrange_session("main")
@@ -109,15 +109,15 @@ You cannot mix operations across session types.
 
 ```python
 # WRONG -- these methods do not exist on Session
-session.rewrite_manifests(...)      # lives on Repository
-session.set_metadata({...})         # lives on Repository (v2 only)
-session.get_node("/path")           # does not exist at all
-session.delete_array("/data")       # does not exist on Python Session
-session.delete_group("/data")       # does not exist on Python Session
+session.rewrite_manifests(...)  # lives on Repository
+session.set_metadata({...})  # lives on Repository (v2 only)
+session.get_node("/path")  # does not exist at all
+session.delete_array("/data")  # does not exist on Python Session
+session.delete_group("/data")  # does not exist on Python Session
 
 # CORRECT
 repo.rewrite_manifests(...)
-repo.set_metadata({...})            # v2 repos only
+repo.set_metadata({...})  # v2 repos only
 # For deleting: use zarr API through the store, not session methods
 ```
 
@@ -130,10 +130,10 @@ repo.set_metadata({...})            # v2 repos only
 
 ```python
 # WRONG
-session.commit("message", amend=True)   # TypeError: unexpected keyword argument
+session.commit("message", amend=True)  # TypeError: unexpected keyword argument
 
 # CORRECT
-session.amend("message")               # separate method, not a kwarg
+session.amend("message")  # separate method, not a kwarg
 ```
 
 ---
@@ -189,7 +189,7 @@ access, it's a hard failure (`PermanentRedirect` / dispatch failure).
 # CORRECT
 storage = icechunk.s3_storage(
     bucket="my-bucket",
-    region="us-east-1",     # must be correct for anonymous access
+    region="us-east-1",  # must be correct for anonymous access
     anonymous=True,
 )
 ```
@@ -242,16 +242,19 @@ detect root snapshots will treat ALL v2 snapshots as roots.
 
 ```python
 # WRONG -- all of these fail
-sync(store.list_prefix(""))          # TypeError: can't be used in 'await'
-asyncio.run(store.list_prefix(""))   # ValueError: coroutine expected
-sorted(store.list_prefix(""))        # TypeError: async_generator not iterable
+sync(store.list_prefix(""))  # TypeError: can't be used in 'await'
+asyncio.run(store.list_prefix(""))  # ValueError: coroutine expected
+sorted(store.list_prefix(""))  # TypeError: async_generator not iterable
 
 # Claude also invented this, which does not exist:
-store.list_prefix_sync("")           # AttributeError
+store.list_prefix_sync("")  # AttributeError
+
 
 # CORRECT (if you truly need store-level keys)
 async def _keys(store):
     return sorted([k async for k in store.list_prefix("")])
+
+
 keys = asyncio.run(_keys(store))
 
 # BETTER -- stay at zarr level
@@ -292,6 +295,7 @@ store.set("zarr.json", b'{"zarr_format": 3}')
 
 # CORRECT (but you probably shouldn't be doing this at all)
 from zarr.core.buffer.cpu import Buffer
+
 await store.set("zarr.json", Buffer.from_bytes(b'{"zarr_format": 3}'))
 
 # BETTER -- use zarr API
@@ -328,7 +332,7 @@ Cannot mix explicit `shape`/`dtype` with `data=`.
 
 ```python
 # WRONG
-root.create_array("arr", shape=(1,))              # missing dtype
+root.create_array("arr", shape=(1,))  # missing dtype
 
 # CORRECT
 root.create_array("arr", shape=(1,), dtype="i4")
@@ -343,7 +347,7 @@ root.create_array("arr", shape=(1,), dtype="i4")
 
 ```python
 # WRONG
-list(store)   # TypeError: 'IcechunkStore' object is not iterable
+list(store)  # TypeError: 'IcechunkStore' object is not iterable
 
 # CORRECT
 root = zarr.open_group(store)
