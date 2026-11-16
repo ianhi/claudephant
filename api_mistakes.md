@@ -45,9 +45,9 @@ Claude repeatedly tries to `await` or `sync()` the result of `list_prefix()`, or
 
 ```python
 # WRONG
-all_keys = sync(store.list_prefix(""))           # can't await a generator
-keys = sorted(store.list_prefix(""))             # async_generator is not iterable
-keys = store.list_prefix_sync("")                # method doesn't exist
+all_keys = sync(store.list_prefix(""))  # can't await a generator
+keys = sorted(store.list_prefix(""))  # async_generator is not iterable
+keys = store.list_prefix_sync("")  # method doesn't exist
 ```
 
 ```python
@@ -116,6 +116,7 @@ root = zarr.open_group(store=session.store, mode="r")
 ```python
 # CORRECT
 from zarr.errors import GroupNotFoundError
+
 try:
     root = zarr.open_group(store=session.store, mode="r")
 except GroupNotFoundError:
@@ -161,7 +162,12 @@ from zarr.core.common import BytesLike  # does not exist
 
 ```python
 # CORRECT
-from zarr.abc.store import ByteRequest, RangeByteRequest, OffsetByteRequest, SuffixByteRequest
+from zarr.abc.store import (
+    ByteRequest,
+    RangeByteRequest,
+    OffsetByteRequest,
+    SuffixByteRequest,
+)
 from zarr.core.buffer import Buffer, default_buffer_prototype
 # StorePath and make_store_path are internal — use zarr.open_group(store) instead
 ```
@@ -210,6 +216,7 @@ if path:
 ```python
 # WRONG — dev builds report pre-release versions (e.g. 3.1.7.dev38 < 3.2)
 from packaging.version import Version
+
 if Version(zarr.__version__) >= Version("3.2"):
     zarr.config.set({"array.rectilinear_chunks": True})
 ```
@@ -274,8 +281,8 @@ root = zarr.group(store=store, overwrite=True)
 
 ```python
 # CORRECT — explicit mode-based API
-root = zarr.open_group(store=store, mode="w")   # overwrite
-root = zarr.open_group(store=store, mode="a")   # append
+root = zarr.open_group(store=store, mode="w")  # overwrite
+root = zarr.open_group(store=store, mode="a")  # append
 ```
 
 ---
